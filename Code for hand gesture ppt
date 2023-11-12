@@ -1,0 +1,147 @@
+CODE:
+
+#Importing Modules
+
+import os
+import cv2
+from cvzone.HandTrackingModule import HandDetector
+import numpy as np
+
+#variables
+width,height=1280,720
+folderPath="PPT SLIDES"
+
+#Camera Setup
+cap=cv2.VideoCapture(0,cv2.CAP_DSHOW)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT,720)
+cap.set(3,width)
+cap.set(4,height)
+
+
+# get the list of presentation images
+pathImages=sorted(os.listdir(folderPath),key=len) #key=len means sorting according to length
+print(pathImages) # ['Slide1.PNG', 'Slide2.PNG', 'Slide3.PNG', 'Slide4.PNG', 'Slide5.PNG', 'Slide6.PNG', 'Slide7.PNG', 'Slide8.PNG', 'Slide9.PNG']
+
+# variables
+imgNumber= 0 # for going front and back slides
+heightsmall , widthsmall= int(120*1),int(213*1) # dividing width,height=1280,720 by 6 each, we get 120,213 height,width such that it is the height, width for the webcam on the slide on top write(not accurately)
+gestureThreshold=300 # if values is above 300 then detect the hand
+buttonPressed=False #used to slow down the movement of the slides slowly insteadly of rapidly changing
+buttonCounter=0
+buttonDelay=30
+draw= [[]]
+drawNumber=-1
+drawStart=False
+
+#Hand Detector
+detector= HandDetector(detectionCon=0.8,maxHands=1) # detectionCon=0.8 implies if 80% confidence that it is hand then work
+
+
+
+while True:
+    #import images
+    success,img=cap.read()
+    img=cv2.flip(img,1) # flip is used that if right hand moves towards left in real life then in webcam it must move towards left only not right , 1 -> horizontal flipping,0-> vertical flipping
+    pathFullImg=os.path.join(folderPath,pathImages[imgNumber]) # pathFullImg shows us the current slide imgNumber is pointing from pathImages var which is sorted
+    imgCurrent= cv2.imread(pathFullImg)
+    print(drawNumber)
+
+    # Find the hand and its landmarks
+    hands,img=detector.findHands(img) # flipType=False is kept such that if right hand is on the webcam then right must be displayed on the webcam not left after flipping is used
+    # Draw Gesture Threshold line
+    cv2.line(img,(0,gestureThreshold),(width,gestureThreshold),(0,255,0),5)
+
+
+
+
+
+    if hands and buttonPressed is False: # if hand is detected in the webcam
+        hand=hands[0] # 0 means only 1 hand is detected as maxHands=1
+        fingers=detector.fingersUp(hand) # List of which fingers are up
+        cx,cy=hand["center"]
+        #print(fingers)
+
+        lmList=hand["lmList"] # List of 21 Landmark points
+
+        #constrain values for easier drawing
+        #indexFinger=lmList[8][0],lmList[8][1]  # 8-> indexfinger number ,0,1 are  the two points on the fingers
+        xVal=int(np.interp(lmList[8][0],[width//2, width],[0,width])) # converting [width//2, wslide]->[0,width] such that the pointer willl be at the right half of the webcam for easy usage
+        yVal =int(np.interp(lmList[8][1],[150,height-150],[0,height]))
+        indexFinger=xVal,yVal
+
+
+        if cy<=gestureThreshold:  # if hand is at the height of the face or above the gesture line
+
+            # Gesture 1 -left
+            if fingers==[1,0,0,0,0]:
+                print('left')
+                buttonPressed = True  #
+                if imgNumber>0:
+                    draw = [[]]       #
+                    drawNumber = -1  # the draw,drawNumber,drawStart is declared again such that if we draw in current slide, then me move to next slide the drawing will get erased
+                    drawStart = False
+                    imgNumber = imgNumber-1
+
+            # Gesture 2 -right
+            if fingers == [0, 0, 0, 0, 1]:
+                print('right')
+                buttonPressed = True
+                if imgNumber <len(pathImages)-1:
+                    draw = [[]]
+                    drawNumber = -1
+                    drawStart = False
+                    imgNumber = imgNumber +1
+
+
+        # Gesture 3 - Show Pointer
+        if fingers==[0,1,1,0,0]:
+            cv2.circle(imgCurrent,indexFinger,12,(0,0,255),cv2.FILLED)
+
+        # Gesture 4 - Drawing Pointer
+        if fingers==[0,1,0,0,0]:
+            if drawStart is False:
+                drawStart=True
+                drawNumber=drawNumber+1
+                draw.append([])
+
+            print(drawNumber)
+            draw[drawNumber].append(indexFinger)
+            cv2.circle(imgCurrent, indexFinger, 12, (0, 0, 255), cv2.FILLED)
+
+        else:
+            drawStart=False
+
+        # Gesture 5 - UNDO
+        if fingers == [0, 1, 1, 1, 0]:
+            if draw:
+                    draw.pop(-1)
+                    drawNumber = drawNumber - 1
+                    buttonPressed=True
+    else: # if no hand
+        drawStart=False
+
+
+    # Button Pressed Iterations
+    if buttonPressed:
+        buttonCounter=buttonCounter+1
+        if buttonCounter>buttonDelay:
+            buttonCounter=0
+            buttonPressed=False
+
+    for i in range(len(draw)):
+        for j in range(len(draw[i])):
+            if j!=0:
+                cv2.line(imgCurrent,draw[i][j-1],draw[i][j],(0,0,200),12,) # from draw[i-1]-> to draw[i] the line must be drawn
+
+    #Adding Webcam image on the slides
+    imgSmall=cv2.resize(img,(widthsmall,heightsmall))
+    hslide,wslide,channel=imgCurrent.shape # gives height,width of slides
+    imgCurrent[0:heightsmall,wslide-widthsmall:wslide]=imgSmall # putting the webcam on the slide in the top right corner
+
+    cv2.imshow("window",img)
+    cv2.imshow("Slides", imgCurrent)
+
+    key=cv2.waitKey(1)
+    if key==ord('q'):
+      break
